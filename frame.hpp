@@ -2,14 +2,14 @@
 
 #define MAX_PAYLOAD_SIZE 80
 #define PREAMBLE 0x55
-#define START 0x7E
-#define END 0x7E
+#define START_CODE 0x7E
+#define END_CODE 0x7E
 
-enum FrameType : uint8_t {
-  Start = 0x01,
-  Data = 0x02,
-  End = 0x03,
-  Nack = 0x04
+enum class FrameType : uint8_t {
+  START = 0x01,
+  DATA = 0x02,
+  END = 0x03,
+  NACK = 0x04
 };
 
 struct FrameHeader {

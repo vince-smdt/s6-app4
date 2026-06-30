@@ -13,9 +13,20 @@ void txTask(void* pvParameters) {
   uint8_t data = 0;
   while (true) {
     Serial.print("TX: 0x");
+    Serial.println(PREAMBLE, HEX);
+    manchester::sendByte(PREAMBLE);
+    vTaskDelay(10);
+
+    Serial.print("TX: 0x");
     Serial.println(data, HEX);
     manchester::sendByte(data);
-    vTaskDelay(1);
+    vTaskDelay(10);
+    data++;
+
+    Serial.print("TX: 0x");
+    Serial.println(data, HEX);
+    manchester::sendByte(data);
+    vTaskDelay(10);
     data++;
   }
 }
