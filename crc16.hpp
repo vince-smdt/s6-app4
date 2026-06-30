@@ -2,6 +2,8 @@
 
 #include "frame.hpp"
 
+namespace crc16 {
+
 uint16_t compute(const uint8_t* data, size_t len) {
   uint16_t crc = 0x0000;
   for (size_t i = 0; i < len; i++) {
@@ -21,3 +23,5 @@ uint16_t computeFrame(const Frame& frame) {
   size_t totalLen = sizeof(FrameHeader) + frame.header.len;
   return compute(header, totalLen);
 }
+
+} // namespace crc16
