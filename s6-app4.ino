@@ -1,6 +1,7 @@
 #include "frame.hpp"
 #include "crc16.hpp"
 #include "manchester.hpp"
+#include "rxLogic.hpp"
 
 #define TX_PIN  4
 #define RX_PIN  2
@@ -33,9 +34,9 @@ void txTask(void* pvParameters) {
 
 void rxTask(void* pvParameters) {
   while (true) {
-    while (manchester::available()) {
-      Serial.print("RX: 0x");
-      Serial.println(manchester::read(), HEX);
+    String msg = rxLogic::read();
+    if(msg != ""){
+      Serial.println(msg);
     }
     vTaskDelay(1);
   }
