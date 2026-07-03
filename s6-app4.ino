@@ -1,5 +1,6 @@
 #include "config.hpp"
 #include "manchester.hpp"
+#include "datalink.hpp"
 
 static const uint8_t testData[] = {
     0x55,                            // Preamble
@@ -11,8 +12,10 @@ static const uint8_t testData[] = {
 };
 static const size_t testDataLen = sizeof(testData);
 
-static manchester::Sender manchSender;
-static manchester::Receiver manchReceiver;
+static datalink::Sender sender;
+static datalink::Receiver receiver;
+// static manchester::Sender manchSender;
+// static manchester::Receiver manchReceiver;
 // static uint8_t rxBuf[RX_BUF_SIZE];
 
 static volatile int txCount = 0;
@@ -31,8 +34,8 @@ void setup() {
 
     Serial.println("\n=== Manchester Test ===");
 
-    manchSender.begin(D1_TX_PIN, HALF_BIT_US);
-    manchReceiver.begin(D1_RX_PIN, HALF_BIT_US);
+    sender.begin(D1_TX_PIN, HALF_BIT_US);
+    receiver.begin(D1_RX_PIN, HALF_BIT_US);
 
     pinMode(D1_RX_PIN, INPUT);
     pinMode(D1_TX_PIN, OUTPUT);
@@ -58,30 +61,60 @@ void txTask(void* pvParameters) {
   Serial.println("Started txTask");
 
   while (1) {
-    Serial.println("Sending buffer...");
-    Serial.print("Data length: ");
-    Serial.println(testDataLen);
-    manchSender.sendBuffer(testData, testDataLen);
+    Serial.println("Sending start frame...");
+    sender.sendPreamble();
+    sender.sendStart(3);
     vTaskDelay(1000);
   }
 }
 
 void rxTask(void* pvParameters) {
-  Serial.println("Started rxTask");
-  uint8_t byte;
+    Frame frame;
 
-  while (1) {
-    if (manchReceiver.getByte(byte)) {
-      Serial.print("Received byte: ");
-      Serial.println(byte, HEX);
+    while (true) {
+      vTaskDelay(1);
+
+      if (!receiver.getFrame(frame)) {
+        continue;
+      }
+
+      switch (frame.header.type) {
+        case FrameType::START: {
+          Serial.println("START");
+          break;
+        }
+
+        case FrameType::DATA: {
+          Serial.printf(
+            "DATA seq=%u len=%u\n",
+            frame.header.seq,
+            frame.header.len
+          );
+
+          for (int i = 0; i < frame.header.len; ++i) {
+            Serial.write(frame.payload[i]);
+          }
+
+          Serial.println();
+          break;
+        }
+
+        case FrameType::END: {
+          Serial.println("END");
+          break;
+        }
+
+        case FrameType::NACK: {
+          Serial.println("NACK");
+          break;
+        }
+      }
     }
-    vTaskDelay(1);
-  }
 }
 
 void onEdgeD1() {
   bool level = gpio_get_level((gpio_num_t)D1_RX_PIN);
-  manchReceiver.onEdge(level);
+  receiver.onEdge(level);
 }
 
 void onEdgeD2() {

@@ -37,8 +37,6 @@ public:
 
   void sendBuffer(const uint8_t *buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
-      Serial.print("Sending byte: ");
-      Serial.println(buf[i], HEX);
       sendByte(buf[i]);
     }
   }

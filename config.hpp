@@ -6,3 +6,5 @@
 #define D2_TX_PIN 14
 
 #define HALF_BIT_US 10'000
+
+#define MAX_PAYLOAD_SIZE 80
