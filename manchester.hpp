@@ -69,18 +69,13 @@ public:
     _bitCount = 0;
   }
 
-  void onEdge(bool value) {
+  void onEdge(bool level) {
     uint32_t now = xthal_get_ccount();
     uint32_t dt = now - _timeLastBit;
 
-    // static uint8_t count = 0;
-    // if (count++ > 10) {
-    //     count = 0;
-    //     Serial.print("dt:");
-    //     Serial.println(dt);
-    // }
+    bool exceededBitPeriod = dt > _fullMax;
 
-    if (!_synced) {
+    if (!_synced || (exceededBitPeriod && level == 1)) {
         _synced = true;
         _timeLastBit = now;
 
@@ -88,8 +83,7 @@ public:
         _bitCount = 1;
         _byte = 0;
         return;
-    } else if (dt > _fullMax) {
-        // Too long since last edge
+    } else if (exceededBitPeriod) {
         unsync();
         return;
     } else if (dt < _fullMin) {
@@ -98,7 +92,7 @@ public:
     }
 
     _timeLastBit = now;
-    _byte = (_byte << 1) | !value;
+    _byte = (_byte << 1) | !level;
     _bitCount += 1;
 
     if (_bitCount == 8) {
@@ -116,9 +110,7 @@ public:
 
   void unsync() { 
     _synced = false;
-    _bitCount = 0;
-    _byte = 0;
-}
+  }
 
 private:
   uint8_t _pin;

@@ -30,9 +30,6 @@ void setup() {
     delay(2000);
 
     Serial.println("\n=== Manchester Test ===");
-    // Serial.printf("Device: %s, TX_GPIO=%d, RX_GPIO=%d\n", "DEVICE_1", TX_GPIO, RX_GPIO);
-    // Serial.printf("Bit rate: %d bps, Half-bit: %d µs\n", 1000000 / BIT_PERIOD_US, HALF_BIT_US);
-    // Serial.printf("Test data: %d bytes\n\n", testDataLen);
 
     manchSender.begin(D1_TX_PIN, HALF_BIT_US);
     manchReceiver.begin(D1_RX_PIN, HALF_BIT_US);
@@ -54,8 +51,7 @@ void setup() {
 }
 
 void loop() { 
-    // vTaskDelay(5000 / portTICK_PERIOD_MS);
-    // Serial.printf("Stats - TX: %d, RX: %d, PASS: %d, FAIL: %d\n", txCount, rxCount, passCount, failCount);
+
 }
 
 void txTask(void* pvParameters) {
@@ -67,10 +63,6 @@ void txTask(void* pvParameters) {
     Serial.println(testDataLen);
     manchSender.sendBuffer(testData, testDataLen);
     vTaskDelay(1000);
-    digitalWrite(D1_TX_PIN, LOW);
-    vTaskDelay(1000);
-    manchReceiver.unsync();
-    vTaskDelay(2000);
   }
 }
 

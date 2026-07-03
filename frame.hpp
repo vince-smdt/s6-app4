@@ -21,6 +21,6 @@ struct FrameHeader {
 
 struct Frame {
   FrameHeader header;
-  uint8_t payload[MAX_PAYLOAD_SIZE];
+  uint8_t *payload;
   uint16_t crc;
 };
