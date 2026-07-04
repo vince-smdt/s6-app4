@@ -6,131 +6,155 @@
 
 namespace rxLogic {
 
-enum class FrameState : int {
-  START,
-  HEADER,
-  DATA,
-  CONTROL,
-  END
-};
+  enum class FrameState : int {
+    PRE,
+    START,
+    HEADER,
+    DATA,
+    CONTROL,
+    END
+  };
 
-enum class HeaderState : int {
-  COMM,
-  SEQ,
-  LEN,
-  DYN
-};
+  enum class HeaderState : int {
+    COMM,
+    SEQ,
+    LEN,
+    DYN
+  };
 
-FrameState state = FrameState::START;
-HeaderState stateEntete = HeaderState::COMM;
+  FrameState state = FrameState::PRE;
+  HeaderState stateEntete = HeaderState::COMM;
 
-const int MAXPACKETLENGTH = 80  ;
-uint8_t packetBuffer[MAXPACKETLENGTH];
-uint16_t bytesReceived = 0;
+  const int MAXPACKETLENGTH = 80  ;
+  uint8_t packetBuffer[MAXPACKETLENGTH];
+  uint16_t bytesReceived = 0;
+  bool isError = false;
 
-uint8_t crc1;
-bool crc1Empty = true;
-uint16_t crc;
+  uint8_t crc1;
+  bool crc1Empty = true;
+  uint16_t crc;
 
-FrameHeader header;
+  FrameHeader header;
 
-void reset(){
-  state = FrameState::START;
-  stateEntete = HeaderState::COMM;
+  void reset(){
+    state = FrameState::PRE;
+    stateEntete = HeaderState::COMM;
 
-  bytesReceived = 0;
-  memset(packetBuffer, 0, MAXPACKETLENGTH);
-  crc1Empty = true;
-}
-
-void headerStateMngr(uint8_t dataRX){
-  switch(stateEntete){
-    case HeaderState::COMM:
-      //Type comm
-      header.type = (FrameType)dataRX;
-      stateEntete = HeaderState::SEQ;
-      break;
-    case HeaderState::SEQ:
-      //Num de séquence
-      header.seq = dataRX;
-      stateEntete = HeaderState::LEN;
-      break;
-    case HeaderState::LEN:
-      //Longueur
-      header.len = dataRX;
-      stateEntete = HeaderState::DYN;
-      break;
-    case HeaderState::DYN:
-      //Volume dynamique
-      header.dyn = dataRX;
-      state = FrameState::DATA;
-      stateEntete = HeaderState::COMM;
-      break;
+    bytesReceived = 0;
+    memset(packetBuffer, 0, MAXPACKETLENGTH);
+    crc1Empty = true;
+  
+    isError = false;
   }
-}
 
-String rxStateMngr(uint8_t dataRX){
-  switch(state){
-    case FrameState::START:
-      //Start
-      if(dataRX == 0x7E){
-        state = FrameState::HEADER;
-      }
-      break;
-    case FrameState::HEADER:
-      headerStateMngr(dataRX);
-      break;
-    case FrameState::DATA:
-      //Data
-      if (bytesReceived < MAXPACKETLENGTH)
-      {
-        packetBuffer[bytesReceived++] = dataRX;
-        if(bytesReceived == header.len)
-        {
+  void headerStateMngr(uint8_t dataRX){
+    switch(stateEntete){
+      case HeaderState::COMM:
+        //Type comm
+        header.type = (FrameType)dataRX;
+        stateEntete = HeaderState::SEQ;
+        break;
+      case HeaderState::SEQ:
+        //Num de séquence
+        if(dataRX != (header.seq + 1) || (header.type == FrameType::DATA && dataRX > header.dyn)){
+          isError = true;
+        }
+
+        header.seq = dataRX;
+        stateEntete = HeaderState::LEN;
+        break;
+      case HeaderState::LEN:
+        //Longueur
+        header.len = dataRX;
+        stateEntete = HeaderState::DYN;
+        break;
+      case HeaderState::DYN:
+        //Volume dynamique
+        if(header.type == FrameType::DATA || header.type == FrameType::NACK){
+          header.dyn = dataRX;
+        }
+        stateEntete = HeaderState::COMM;
+
+        if(header.type == FrameType::DATA){
+          state = FrameState::DATA;
+        }else{
           state = FrameState::CONTROL;
         }
-      }else{
-        state = FrameState::CONTROL;
-      }
-      break;
-    case FrameState::CONTROL:
-      //Controle
-      if(crc1Empty){
-        crc1 = dataRX;
-        crc1Empty = false;
-      }else{
-        crc = (static_cast<uint16_t>(crc1) << 8) | dataRX ;
-
-        Frame frame;
-        frame.header = header;
-        memcpy(frame.payload, packetBuffer, header.len);
-        frame.crc = crc;
-        crc16::computeFrame(frame);
-        state = FrameState::END;
-      }
-      break;
-    case FrameState::END:
-      if(dataRX == 0x7E){
-        char message[header.len + 1];
-        memcpy(message, packetBuffer, header.len);
-        message[header.len] = '\0';
-
-        reset();
-        return String(message);
-      }
-      break;
+        break;
+    }
   }
-  return "";
-}
 
-String read(){
-  while (manchester::available()) {
-    Serial.print("RX: 0x");
-    uint8_t dataRX = manchester::read();
-    Serial.println(dataRX, HEX);
+  void rxStateMngr(uint8_t dataRX){
+    switch(state){
+      case FrameState::PRE:
+        //Preambule
+        if(dataRX == 0x55){
+          state = FrameState::START;
+        }
+        break;
 
-    return rxStateMngr(dataRX);
+      case FrameState::START:
+        //Start
+        if(dataRX == 0x7E){
+          state = FrameState::HEADER;
+        }
+        break;
+
+      case FrameState::HEADER:
+        headerStateMngr(dataRX);
+        break;
+
+      case FrameState::DATA:
+        //Data
+        if (bytesReceived < MAXPACKETLENGTH)
+        {
+          if(!isError){
+            packetBuffer[bytesReceived++] = dataRX;
+            if(bytesReceived == header.len)
+            {
+              state = FrameState::CONTROL;
+            }
+          }
+        }else{
+          state = FrameState::CONTROL;
+        }
+        break;
+
+      case FrameState::CONTROL:
+        //Controle
+        if(crc1Empty){
+          crc1 = dataRX;
+          crc1Empty = false;
+        }else{
+          crc = (static_cast<uint16_t>(crc1) << 8) | dataRX ;
+
+          Frame frame;
+          frame.header = header;
+          memcpy(frame.payload, packetBuffer, header.len);
+          frame.crc = crc;
+          crc16::computeFrame(frame);
+          state = FrameState::END;
+        }
+        break;
+
+      case FrameState::END:
+        if(dataRX == 0x7E){
+          if(header.type == FrameType::DATA){
+            Serial.write(packetBuffer, header.len);
+          }
+          reset();
+        }
+        break;
+    }
   }
-  return "";
-}
+
+  void read(){
+    while (manchester::available()) {
+      Serial.print("RX: 0x");
+      uint8_t dataRX = manchester::read();
+      Serial.println(dataRX, HEX);
+  
+      rxStateMngr(dataRX);
+    }
+  }
 }
