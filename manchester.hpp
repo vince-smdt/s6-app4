@@ -4,6 +4,9 @@
 #include "ring-buffer.hpp"
 #include <Arduino.h>
 #include <soc/gpio_struct.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -14,37 +17,91 @@ public:
   void begin(uint8_t pin, uint32_t halfBitUs) {
     _halfBitUs = halfBitUs;
     _bitMask = 1u << pin;
-  }
+    _done = true;
 
-  void sendBit(bool value) {
-    if (value) {
-      GPIO.out_w1ts = _bitMask;
-      delayMicroseconds(_halfBitUs);
-      GPIO.out_w1tc = _bitMask;
-      delayMicroseconds(_halfBitUs);
-    } else {
-      GPIO.out_w1tc = _bitMask;
-      delayMicroseconds(_halfBitUs);
-      GPIO.out_w1ts = _bitMask;
-      delayMicroseconds(_halfBitUs);
-    }
+    esp_timer_create_args_t args = {};
+    args.callback = timerCallback;
+    args.arg = this;
+    args.name = "man_tx";
+    esp_timer_create(&args, &_timer);
+
+    _sem = xSemaphoreCreateBinary();
   }
 
   void sendByte(uint8_t byte) {
-    for (int8_t i = 7; i >= 0; i--) {
-      sendBit((byte >> i) & 1);
-    }
+    sendBuffer(&byte, 1);
   }
 
-  void sendBuffer(const uint8_t *buf, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-      sendByte(buf[i]);
+  void sendBuffer(const uint8_t* buf, size_t len) {
+    _buf = buf;
+    _len = len;
+    _byteIdx = 0;
+    _bitIdx = 7;
+    _halfPhase = 0;
+    _done = false;
+
+    bool bit = (_buf[0] >> 7) & 1;
+    if (bit) {
+      GPIO.out_w1ts = _bitMask;
+    } else {
+      GPIO.out_w1tc = _bitMask;
     }
+
+    esp_timer_start_periodic(_timer, _halfBitUs);
+    xSemaphoreTake(_sem, portMAX_DELAY);
   }
 
 private:
+  static void timerCallback(void* arg) {
+    static_cast<Sender*>(arg)->handleTimer();
+  }
+
+  void handleTimer() {
+    if (_done) return;
+
+    if (_halfPhase == 0) {
+      bool bit = (_buf[_byteIdx] >> _bitIdx) & 1;
+      if (bit) {
+        GPIO.out_w1tc = _bitMask;
+      } else {
+        GPIO.out_w1ts = _bitMask;
+      }
+      _halfPhase = 1;
+    } else {
+      _bitIdx--;
+      if (_bitIdx < 0) {
+        _bitIdx = 7;
+        _byteIdx++;
+        if (_byteIdx >= _len) {
+          _done = true;
+          esp_timer_stop(_timer);
+          xSemaphoreGive(_sem);
+          return;
+        }
+      }
+
+      bool bit = (_buf[_byteIdx] >> _bitIdx) & 1;
+      if (bit) {
+        GPIO.out_w1ts = _bitMask;
+      } else {
+        GPIO.out_w1tc = _bitMask;
+      }
+      _halfPhase = 0;
+    }
+  }
+
   uint32_t _bitMask;
   uint32_t _halfBitUs;
+
+  const uint8_t* _buf;
+  size_t _len;
+  size_t _byteIdx;
+  int8_t _bitIdx;
+  uint8_t _halfPhase;
+  volatile bool _done;
+
+  esp_timer_handle_t _timer;
+  SemaphoreHandle_t _sem;
 };
 
 class Receiver {

@@ -40,13 +40,21 @@ private:
       crc = crc16::compute(payload, payloadLen, crc);
     }
 
-    _tx.sendByte(START_CODE);
-    _tx.sendBuffer(reinterpret_cast<const uint8_t*>(&header), sizeof(header));
+    uint8_t frameBuf[1 + sizeof(FrameHeader) + MAX_PAYLOAD_SIZE + sizeof(uint16_t) + 1];
+    size_t pos = 0;
+
+    frameBuf[pos++] = START_CODE;
+    memcpy(frameBuf + pos, &header, sizeof(header));
+    pos += sizeof(header);
     if (payload && payloadLen > 0) {
-      _tx.sendBuffer(payload, payloadLen);
+      memcpy(frameBuf + pos, payload, payloadLen);
+      pos += payloadLen;
     }
-    _tx.sendBuffer(reinterpret_cast<const uint8_t*>(&crc), sizeof(crc));
-    _tx.sendByte(END_CODE);
+    memcpy(frameBuf + pos, &crc, sizeof(crc));
+    pos += sizeof(crc);
+    frameBuf[pos++] = END_CODE;
+
+    _tx.sendBuffer(frameBuf, pos);
   }
 
 private:
