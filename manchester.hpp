@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "ring-buffer.hpp"
 #include <Arduino.h>
+#include <soc/gpio_struct.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -11,20 +12,20 @@ namespace manchester {
 class Sender {
 public:
   void begin(uint8_t pin, uint32_t halfBitUs) {
-    _pin = pin;
     _halfBitUs = halfBitUs;
+    _bitMask = 1u << pin;
   }
 
   void sendBit(bool value) {
     if (value) {
-      digitalWrite(_pin, HIGH);
+      GPIO.out_w1ts = _bitMask;
       delayMicroseconds(_halfBitUs);
-      digitalWrite(_pin, LOW);
+      GPIO.out_w1tc = _bitMask;
       delayMicroseconds(_halfBitUs);
     } else {
-      digitalWrite(_pin, LOW);
+      GPIO.out_w1tc = _bitMask;
       delayMicroseconds(_halfBitUs);
-      digitalWrite(_pin, HIGH);
+      GPIO.out_w1ts = _bitMask;
       delayMicroseconds(_halfBitUs);
     }
   }
@@ -42,7 +43,7 @@ public:
   }
 
 private:
-  uint8_t _pin;
+  uint32_t _bitMask;
   uint32_t _halfBitUs;
 };
 
