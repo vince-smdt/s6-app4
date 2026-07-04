@@ -15,6 +15,11 @@ public:
         _rx.onEdge(level);
     }
 
+    void enableErrorInjection(uint8_t packetSeq) {
+        _injectError = true;
+        _errorSeq = packetSeq;
+    }
+
     void sendSession(const uint8_t* data, size_t len) {
         if (len == 0) return;
 
@@ -29,8 +34,14 @@ public:
             uint16_t offset = (currentSeq - 1) * MAX_PAYLOAD_SIZE;
             uint8_t pktLen = (offset + MAX_PAYLOAD_SIZE > len) ? (len - offset) : MAX_PAYLOAD_SIZE;
 
+            uint8_t sendSeq = currentSeq;
+            if (_injectError && currentSeq == _errorSeq) {
+                sendSeq = 0xFE;
+                _injectError = false;
+            }
+
             _tx.sendPreamble();
-            _tx.sendDataFrame(data + offset, pktLen, currentSeq);
+            _tx.sendDataFrame(data + offset, pktLen, sendSeq);
 
             currentSeq++;
 
@@ -57,6 +68,9 @@ private:
         }
         return gotNack;
     }
+
+    bool _injectError = false;
+    uint8_t _errorSeq = 0;
 
     datalink::Sender _tx;
     datalink::Receiver _rx;

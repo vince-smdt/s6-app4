@@ -53,9 +53,9 @@ void setup() {
 
 void loop() {
     if (txDone && rxDone) {
+        startBenchmark = false;
         txDone = false;
         rxDone = false;
-        startBenchmark = false;
 
         unsigned long txElapsed = txEndUs - txStartUs;
         unsigned long rxElapsed = rxEndUs - rxStartUs;
@@ -91,6 +91,7 @@ void txTask(void* pvParameters) {
         Serial.printf("Sending %u bytes in %d packets...\n", offset, total_paquets);
 
         txStartUs = micros();
+        sender.enableErrorInjection(3);
         sender.sendSession((const uint8_t*)data, offset);
         txEndUs = micros();
 
