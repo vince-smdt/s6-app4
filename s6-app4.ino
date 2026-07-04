@@ -1,27 +1,24 @@
 #include "config.hpp"
-#include "manchester.hpp"
-#include "datalink.hpp"
+#include "protocol.hpp"
 
-static const uint8_t testData[] = {
-    0x55,                            // Preamble
-    0x7E,                            // Start
-    0x02, 0x01, 0x05, 0x00,          // Header: DATA, seq=1, len=5, vol=0
-    'H', 'e', 'l', 'l', 'o',         // Payload
-    0x41, 0xFB,                      // CRC16
-    0x7E                             // End
+static const char* donnees_txt[] = {
+    "Ligne 1 - 2026-06-17 10:00:01 | Temp: 22.4 C | Humidite: 45.2 % | Node: 01",
+    "Ligne 2 - 2026-06-17 10:05:01 | Temp: 22.5 C | Humidite: 45.1 % | Node: 01",
+    "Ligne 3 - 2026-06-17 10:10:01 | Temp: 22.8 C | Humidite: 44.9 % | Node: 01",
+    "Ligne 4 - 2026-06-17 10:15:01 | Temp: 23.1 C | Humidite: 44.8 % | Node: 01",
+    "Ligne 5 - 2026-06-17 10:20:01 | Temp: 23.0 C | Humidite: 45.0 % | Node: 01",
 };
-static const size_t testDataLen = sizeof(testData);
+static const int total_paquets = sizeof(donnees_txt) / sizeof(donnees_txt[0]);
 
-static datalink::Sender sender;
-static datalink::Receiver receiver;
-// static manchester::Sender manchSender;
-// static manchester::Receiver manchReceiver;
-// static uint8_t rxBuf[RX_BUF_SIZE];
+static protocol::Sender sender;
+static protocol::Receiver receiver;
 
-static volatile int txCount = 0;
-static volatile int rxCount = 0;
-static volatile int passCount = 0;
-static volatile int failCount = 0;
+static uint8_t rxBuffer[512];
+static volatile unsigned long txStartUs, txEndUs, rxStartUs, rxEndUs;
+static volatile bool txDone = false;
+static volatile bool rxDone = false;
+static volatile bool startBenchmark = true;
+static volatile size_t totalBytes = 0;
 
 void txTask(void* pvParameters);
 void rxTask(void* pvParameters);
@@ -32,105 +29,100 @@ void setup() {
     Serial.begin(115200);
     delay(2000);
 
-    Serial.println("\n=== Manchester Test ===");
+    Serial.println("\n=== Protocol Benchmark ===");
 
-    sender.begin(D1_TX_PIN, HALF_BIT_US);
-    receiver.begin(D1_RX_PIN, HALF_BIT_US);
+    // D1_TX(12) -> D2_RX(4)  |  D2_TX(14) -> D1_RX(2)
+    sender.begin(D1_TX_PIN, D1_RX_PIN, HALF_BIT_US);
+    receiver.begin(D2_TX_PIN, D2_RX_PIN, HALF_BIT_US);
+    receiver.setBuffer(rxBuffer, sizeof(rxBuffer));
 
     pinMode(D1_RX_PIN, INPUT);
     pinMode(D1_TX_PIN, OUTPUT);
     pinMode(D2_RX_PIN, INPUT);
     pinMode(D2_TX_PIN, OUTPUT);
 
-    // Initialize to low so when we start with preamble, first falling edge is always a bit transition and not an inbetween transition
     digitalWrite(D1_TX_PIN, LOW);
     digitalWrite(D2_TX_PIN, LOW);
 
-    xTaskCreatePinnedToCore(rxTask, "rxTask", 2048, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(txTask, "txTask", 2048, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(rxTask, "rxTask", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(txTask, "txTask", 4096, NULL, 1, NULL, 1);
 
     attachInterrupt(digitalPinToInterrupt(D1_RX_PIN), onEdgeD1, CHANGE);
     attachInterrupt(digitalPinToInterrupt(D2_RX_PIN), onEdgeD2, CHANGE);
 }
 
-void loop() { 
+void loop() {
+    if (txDone && rxDone) {
+        txDone = false;
+        rxDone = false;
 
+        unsigned long txElapsed = txEndUs - txStartUs;
+        unsigned long rxElapsed = rxEndUs - rxStartUs;
+        float txSec = txElapsed / 1e6f;
+        float rxSec = rxElapsed / 1e6f;
+
+        Serial.printf("\n--- Benchmark Results ---\n");
+        Serial.printf("Packets: %d  Total bytes: %u\n", total_paquets, totalBytes);
+        Serial.printf("Sender:   %lu us (%.3f s)  ->  %.2f B/s\n", txElapsed, txSec, totalBytes / txSec);
+        Serial.printf("Receiver: %lu us (%.3f s)  ->  %.2f B/s\n", rxElapsed, rxSec, totalBytes / rxSec);
+
+        vTaskDelay(5000);
+        startBenchmark = true;
+    }
 }
 
 void txTask(void* pvParameters) {
-  Serial.println("Started txTask");
+    char data[512];
 
-  const char* message = "Hello";
+    while (true) {
+        while (!startBenchmark) vTaskDelay(10);
 
-  while (1) {
-    Serial.println("Sending START...");
-    sender.sendPreamble();
-    sender.sendStart(3);
-    vTaskDelay(1000);
+        vTaskDelay(100);
 
-    Serial.println("Sending DATA...");
-    sender.sendPreamble();
-    sender.sendDataFrame(reinterpret_cast<const uint8_t*>(message), strlen(message), 1);
-    vTaskDelay(1000);
+        size_t offset = 0;
+        for (int i = 0; i < total_paquets; i++) {
+            size_t len = strlen(donnees_txt[i]);
+            memcpy(data + offset, donnees_txt[i], len);
+            offset += len;
+        }
+        totalBytes = offset;
 
-    Serial.println("Sending END...");
-    sender.sendPreamble();
-    sender.sendEnd();
-    vTaskDelay(1000);
+        Serial.printf("Sending %u bytes in %d packets...\n", offset, total_paquets);
 
-    Serial.println("Sending NACK...");
-    sender.sendPreamble();
-    sender.sendNack(1);
-    vTaskDelay(1000);
-  }
+        txStartUs = micros();
+        sender.sendSession((const uint8_t*)data, offset);
+        txEndUs = micros();
+
+        txDone = true;
+    }
 }
 
 void rxTask(void* pvParameters) {
     while (true) {
-      vTaskDelay(1);
+        while (!startBenchmark) vTaskDelay(10);
 
-      const Frame* frame = receiver.getFrame();
-      if (!frame) continue;
+        vTaskDelay(50);
+        receiver.reset();
+        rxStartUs = micros();
 
-      switch (frame->header.type) {
-        case FrameType::START: {
-          Serial.println("START");
-          break;
+        while (true) {
+            auto status = receiver.poll();
+            if (status == protocol::Receiver::Status::COMPLETE) {
+                rxEndUs = micros();
+                rxDone = true;
+                break;
+            }
+            vTaskDelay(1);
         }
-
-        case FrameType::DATA: {
-          Serial.printf(
-            "DATA seq=%u len=%u\n",
-            frame->header.seq,
-            frame->header.len
-          );
-
-          for (int i = 0; i < frame->header.len; ++i) {
-            Serial.write(frame->payload[i]);
-          }
-
-          Serial.println();
-          break;
-        }
-
-        case FrameType::END: {
-          Serial.println("END");
-          break;
-        }
-
-        case FrameType::NACK: {
-          Serial.println("NACK");
-          break;
-        }
-      }
     }
 }
 
 void onEdgeD1() {
-  bool level = gpio_get_level((gpio_num_t)D1_RX_PIN);
-  receiver.onEdge(level);
+    bool level = gpio_get_level((gpio_num_t)D1_RX_PIN);
+    sender.onEdge(level);
 }
 
 void onEdgeD2() {
-  // TODO
+    bool level = gpio_get_level((gpio_num_t)D2_RX_PIN);
+    receiver.onEdge(level);
 }
