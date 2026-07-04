@@ -55,6 +55,7 @@ void loop() {
     if (txDone && rxDone) {
         txDone = false;
         rxDone = false;
+        startBenchmark = false;
 
         unsigned long txElapsed = txEndUs - txStartUs;
         unsigned long rxElapsed = rxEndUs - rxStartUs;
