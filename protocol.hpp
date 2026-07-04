@@ -22,7 +22,6 @@ public:
         uint8_t currentSeq = 1;
         uint8_t nackSeq;
 
-        Serial.println("[S] Sending START...");
         _tx.sendPreamble();
         _tx.sendStart(nPackets);
 
@@ -30,22 +29,16 @@ public:
             uint16_t offset = (currentSeq - 1) * MAX_PAYLOAD_SIZE;
             uint8_t pktLen = (offset + MAX_PAYLOAD_SIZE > len) ? (len - offset) : MAX_PAYLOAD_SIZE;
 
-            Serial.printf("[S] Sending DATA seq=%u len=%u\n", currentSeq, pktLen);
             _tx.sendPreamble();
             _tx.sendDataFrame(data + offset, pktLen, currentSeq);
 
             currentSeq++;
 
-            Serial.print("[S] drainNacks...");
             if (drainNacks(nackSeq)) {
-                Serial.printf(" NACK(%u) -> rewind to seq %u\n", nackSeq, nackSeq);
                 currentSeq = nackSeq;
-            } else {
-                Serial.println(" none");
             }
         }
 
-        Serial.println("[S] Sending END...");
         _tx.sendPreamble();
         _tx.sendEnd();
     }
@@ -93,15 +86,7 @@ public:
 
     Status poll() {
         const Frame* frame = _rx.getFrame();
-        if (!frame) {
-            Status s = _sessionActive ? Status::BUSY : Status::IDLE;
-            if (s == Status::IDLE) Serial.println("[R] idle");
-            return s;
-        }
-
-        Serial.printf("[R] got frame type=%02X seq=%u len=%u dyn=%u\n",
-            (uint8_t)frame->header.type, frame->header.seq,
-            frame->header.len, frame->header.dyn);
+        if (!frame) return _sessionActive ? Status::BUSY : Status::IDLE;
 
         switch (frame->header.type) {
 
@@ -110,14 +95,12 @@ public:
             _totalPackets = frame->header.dyn;
             _sessionActive = true;
             _receivedLen = 0;
-            Serial.printf("[R] START: expecting %u packets\n", _totalPackets);
             return Status::BUSY;
 
         case FrameType::DATA: {
             if (!_sessionActive) return Status::IDLE;
 
             if (frame->header.seq == _expectedSeq) {
-                Serial.printf("[R] DATA seq=%u ACCEPTED\n", frame->header.seq);
                 if (_receivedLen + frame->header.len <= _bufferSize) {
                     memcpy(_buffer + _receivedLen, frame->payload, frame->header.len);
                 }
@@ -125,12 +108,9 @@ public:
                 _expectedSeq++;
 
                 if (_expectedSeq > _totalPackets) {
-                    Serial.println("[R] All packets received -> COMPLETE");
                     return Status::COMPLETE;
                 }
             } else {
-                Serial.printf("[R] DATA seq=%u != expected %u -> NACK\n",
-                    frame->header.seq, _expectedSeq);
                 _tx.sendPreamble();
                 _tx.sendNack(_expectedSeq);
             }
@@ -138,7 +118,6 @@ public:
         }
 
         case FrameType::END:
-            Serial.println("[R] END -> COMPLETE");
             _sessionActive = false;
             return Status::COMPLETE;
 
