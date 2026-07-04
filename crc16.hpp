@@ -4,8 +4,7 @@
 
 namespace crc16 {
 
-uint16_t compute(const uint8_t* data, size_t len) {
-  uint16_t crc = 0x0000;
+uint16_t compute(const uint8_t* data, size_t len, uint16_t crc = 0x0000) {
   for (size_t i = 0; i < len; i++) {
     crc ^= (uint16_t)data[i] << 8;
     for (int j = 0; j < 8; j++) {

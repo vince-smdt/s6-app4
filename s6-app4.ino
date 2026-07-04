@@ -60,25 +60,39 @@ void loop() {
 void txTask(void* pvParameters) {
   Serial.println("Started txTask");
 
+  const char* message = "Hello";
+
   while (1) {
-    Serial.println("Sending start frame...");
+    Serial.println("Sending START...");
     sender.sendPreamble();
     sender.sendStart(3);
+    vTaskDelay(1000);
+
+    Serial.println("Sending DATA...");
+    sender.sendPreamble();
+    sender.sendDataFrame(reinterpret_cast<const uint8_t*>(message), strlen(message), 1);
+    vTaskDelay(1000);
+
+    Serial.println("Sending END...");
+    sender.sendPreamble();
+    sender.sendEnd();
+    vTaskDelay(1000);
+
+    Serial.println("Sending NACK...");
+    sender.sendPreamble();
+    sender.sendNack(1);
     vTaskDelay(1000);
   }
 }
 
 void rxTask(void* pvParameters) {
-    Frame frame;
-
     while (true) {
       vTaskDelay(1);
 
-      if (!receiver.getFrame(frame)) {
-        continue;
-      }
+      const Frame* frame = receiver.getFrame();
+      if (!frame) continue;
 
-      switch (frame.header.type) {
+      switch (frame->header.type) {
         case FrameType::START: {
           Serial.println("START");
           break;
@@ -87,12 +101,12 @@ void rxTask(void* pvParameters) {
         case FrameType::DATA: {
           Serial.printf(
             "DATA seq=%u len=%u\n",
-            frame.header.seq,
-            frame.header.len
+            frame->header.seq,
+            frame->header.len
           );
 
-          for (int i = 0; i < frame.header.len; ++i) {
-            Serial.write(frame.payload[i]);
+          for (int i = 0; i < frame->header.len; ++i) {
+            Serial.write(frame->payload[i]);
           }
 
           Serial.println();

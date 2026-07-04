@@ -17,39 +17,39 @@ public:
   }
 
   void sendStart(uint8_t nPackets) {
-    sendFrame(FrameType::START, 0, 0, nPackets);
+    sendFrame({FrameType::START, 0, 0, nPackets});
   }
 
-  void sendDataFrame(uint8_t *payload, uint8_t len, uint8_t seq) {
-    // _frame.payload = payload; // TODO: FIX THIS BUG, need to do something with payload
-    sendFrame(FrameType::DATA, seq, len, 0);
+  void sendDataFrame(const uint8_t *payload, uint8_t len, uint8_t seq) {
+    sendFrame({FrameType::DATA, seq, len, 0}, payload, len);
   }
 
   void sendEnd() {
-    sendFrame(FrameType::END, 0, 0, 0);
+    sendFrame({FrameType::END, 0, 0, 0});
   }
 
   void sendNack(uint8_t seq) {
-    sendFrame(FrameType::NACK, 0, 0, seq);
+    sendFrame({FrameType::NACK, 0, 0, seq});
   }
 
 private:
-  void sendFrame(FrameType type, uint8_t seq, uint8_t len, uint8_t dyn) {
-    _frame.header.type = type;
-    _frame.header.seq = seq;
-    _frame.header.len = len;
-    _frame.header.dyn = dyn;
-    _frame.crc = crc16::computeFrame(_frame);
+  void sendFrame(const FrameHeader& header,
+                 const uint8_t *payload = nullptr, uint8_t payloadLen = 0) {
+    uint16_t crc = crc16::compute(reinterpret_cast<const uint8_t*>(&header), sizeof(header));
+    if (payload && payloadLen > 0) {
+      crc = crc16::compute(payload, payloadLen, crc);
+    }
 
     _tx.sendByte(START_CODE);
-    _tx.sendBuffer(reinterpret_cast<uint8_t*>(&_frame.header), sizeof(_frame.header));
-    _tx.sendBuffer(_frame.payload, _frame.header.len);
-    _tx.sendBuffer(reinterpret_cast<uint8_t*>(&_frame.crc), sizeof(_frame.crc));
+    _tx.sendBuffer(reinterpret_cast<const uint8_t*>(&header), sizeof(header));
+    if (payload && payloadLen > 0) {
+      _tx.sendBuffer(payload, payloadLen);
+    }
+    _tx.sendBuffer(reinterpret_cast<const uint8_t*>(&crc), sizeof(crc));
     _tx.sendByte(END_CODE);
   }
 
 private:
-  Frame _frame;
   manchester::Sender _tx;
 };
 
@@ -64,18 +64,17 @@ public:
         _rx.onEdge(level);
     }
 
-    bool getFrame(Frame& frame) {
+    const Frame* getFrame() {
         uint8_t byte;
 
         while (_rx.getByte(byte)) {
             if (processByte(byte)) {
-                frame = _frame;
                 reset();
-                return true;
+                return &_frame;
             }
         }
 
-        return false;
+        return nullptr;
     }
 
 private:
@@ -95,9 +94,6 @@ private:
             if (byte == START_CODE) {
               resetFrame();
               _state = State::Header;
-            } else {
-              Serial.print("Expected START, got:");
-              Serial.println(byte, HEX);
             }
             break;
 
